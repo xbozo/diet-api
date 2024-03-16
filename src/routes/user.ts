@@ -12,6 +12,70 @@ export const usersRoutes = async (app: FastifyInstance) => {
 		})
 	})
 
+	app.get('/summary/:id', async (req, res) => {
+		const getUserSummarySchema = z.object({
+			id: z.string().uuid(),
+		})
+
+		const { id } = getUserSummarySchema.parse(req.params)
+
+		const user = await knex('users')
+			.where({
+				id,
+			})
+			.first()
+
+		if (!user) {
+			return res.status(404).send()
+		}
+
+		let userSummary = {
+			totalMeals: 0,
+			totalMealsOnDiet: 0,
+			totalMealsOutOfDiet: 0,
+			biggestDietStreak: 0,
+		}
+
+		const userMeals = await knex('meals').where({
+			user_id: user.id,
+		})
+
+		userSummary.totalMeals = userMeals.length
+
+		userMeals.map((meal) => {
+			if (meal.is_on_diet) {
+				userSummary.totalMealsOnDiet += 1
+			}
+
+			if (!meal.is_on_diet) {
+				userSummary.totalMealsOutOfDiet += 1
+			}
+		})
+
+		const findBiggestMealsOnDietSequence = () => {
+			let biggestSequence = 0
+			let currentSequence = 0
+
+			for (const meal of userMeals) {
+				if (meal.is_on_diet) {
+					currentSequence++
+				} else {
+					currentSequence = 0
+				}
+
+				biggestSequence = Math.max(biggestSequence, currentSequence)
+			}
+
+			return biggestSequence
+		}
+
+		userSummary.biggestDietStreak = findBiggestMealsOnDietSequence()
+
+		return res.send({
+			userSummary,
+		})
+	})
+
 	app.post('/', async (req, res) => {
 		const createUserSchema = z.object({
 			name: z.string(),
@@ -20,16 +84,12 @@ export const usersRoutes = async (app: FastifyInstance) => {
 
 		const { name, email } = createUserSchema.parse(req.body)
 
-		let sessionId = req.cookies.sessionId
+		let sessionId = randomUUID()
 
-		if (!sessionId) {
-			sessionId = randomUUID()
-
-			res.cookie('sessionId', sessionId, {
-				path: '/',
-				maxAge: 60 * 60 * 24 * 7, // 7d
-			})
-		}
+		res.cookie('sessionId', sessionId, {
+			path: '/',
+			maxAge: 60 * 60 * 24 * 7, // 7d
+		})
 
 		await knex('users').insert({
 			name,
